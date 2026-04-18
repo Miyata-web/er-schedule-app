@@ -52,7 +52,18 @@ interface TodoItem {
   text: string;
   done: boolean;
   createdAt: number;
+  sub?: boolean; // サブ項目（インデント表示）
 }
+
+const DEFAULT_TODOS: TodoItem[] = [
+  { id: "d1", text: "注射ラベルの注文（適宜）：総務課",                                         done: false, createdAt: 1 },
+  { id: "d2", text: "待合室の血圧計用紙交換",                                                    done: false, createdAt: 2 },
+  { id: "d3", text: "検査ラベル：検査科",                                                        done: false, createdAt: 3 },
+  { id: "d4", text: "印刷物",                                                                    done: false, createdAt: 4 },
+  { id: "d5", text: "アナムネ用紙の補充",                                                        done: false, createdAt: 5, sub: true },
+  { id: "d6", text: "スリッパ、紙コップの注文（適宜）",                                          done: false, createdAt: 6 },
+  { id: "d7", text: "オムツ庫→介護タオル・ピンクシート・感染袋・ペーパータオル（適宜）",          done: false, createdAt: 7 },
+];
 
 // ── JST Utility Functions ─────────────────────────────────────────────
 
@@ -342,12 +353,14 @@ export default function Home() {
     }
   }, [session, activeTab, weekOffset, fetchRangeEvents]);
 
-  // Load todos from localStorage
+  // Load todos from localStorage (fall back to defaults on first launch)
   useEffect(() => {
     try {
       const saved = localStorage.getItem("er_todos");
-      if (saved) setTodos(JSON.parse(saved));
-    } catch { /* ignore */ }
+      setTodos(saved ? JSON.parse(saved) : DEFAULT_TODOS.map((t) => ({ ...t, done: false })));
+    } catch {
+      setTodos(DEFAULT_TODOS.map((t) => ({ ...t, done: false })));
+    }
   }, []);
 
   // Save todos to localStorage whenever they change
@@ -1031,14 +1044,19 @@ export default function Home() {
               <h2 className="text-base font-bold text-gray-800 flex items-center gap-2">
                 <span>✅</span>ToDoリスト
               </h2>
-              {todos.some((t) => t.done) && (
+              <div className="flex items-center gap-3">
+                {todos.some((t) => t.done) && (
+                  <button onClick={clearDoneTodos} className="text-xs text-red-400 font-medium">
+                    完了済みを削除
+                  </button>
+                )}
                 <button
-                  onClick={clearDoneTodos}
-                  className="text-xs text-red-400 font-medium"
+                  onClick={() => setTodos(DEFAULT_TODOS.map((t) => ({ ...t, done: false })))}
+                  className="text-xs text-gray-400 font-medium"
                 >
-                  完了済みを削除
+                  リセット
                 </button>
-              )}
+              </div>
             </div>
 
             {/* Add input */}
@@ -1074,7 +1092,7 @@ export default function Home() {
                     key={todo.id}
                     className={`bg-white rounded-xl shadow-sm p-4 flex items-center gap-3 transition-opacity ${
                       todo.done ? "opacity-50" : "opacity-100"
-                    }`}
+                    } ${todo.sub ? "ml-6 border-l-2 border-blue-100" : ""}`}
                   >
                     <button
                       onClick={() => toggleTodo(todo.id)}
