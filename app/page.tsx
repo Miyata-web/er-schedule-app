@@ -245,6 +245,8 @@ export default function Home() {
   const [addSuccess, setAddSuccess]           = useState(false);
   const [notificationPermission, setNotificationPermission] =
     useState<NotificationPermission>("default");
+  const [subscriptionSaved, setSubscriptionSaved] = useState<boolean | null>(null); // null=unknown
+  const [pushError, setPushError] = useState<string | null>(null);
 
   const recognitionRef       = useRef<ISpeechRecognition | null>(null);
   const recognitionResultRef = useRef<boolean>(false);
@@ -298,7 +300,10 @@ export default function Home() {
     fetchEvents();
     if ("Notification" in window) {
       setNotificationPermission(Notification.permission);
-      if (Notification.permission === "granted") subscribeToPush();
+      if (Notification.permission === "granted") {
+        // Check if subscription is already registered on server
+        checkSubscriptionStatus();
+      }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session]);
@@ -316,28 +321,72 @@ export default function Home() {
 
   // ── Push Notifications ───────────────────────────────────────────────
 
-  const subscribeToPush = async () => {
+  const subscribeToPush = async (): Promise<boolean> => {
+    setPushError(null);
     try {
-      if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
+      if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+        setPushError("このブラウザはプッシュ通知に対応していません");
+        return false;
+      }
       const registration = await navigator.serviceWorker.ready;
       const vapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
-      if (!vapidKey) return;
+      if (!vapidKey) {
+        setPushError("VAPID公開鍵が未設定です（環境変数を確認してください）");
+        return false;
+      }
+
+      // Convert VAPID public key
       const padding = "=".repeat((4 - (vapidKey.length % 4)) % 4);
       const base64  = (vapidKey + padding).replace(/-/g, "+").replace(/_/g, "/");
       const rawData = window.atob(base64);
       const applicationServerKey = new Uint8Array(rawData.length);
       for (let i = 0; i < rawData.length; ++i) applicationServerKey[i] = rawData.charCodeAt(i);
+
+      // Force new subscription (unsubscribe first to ensure fresh token)
       const existingSub = await registration.pushManager.getSubscription();
-      const subscription =
-        existingSub ||
-        (await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey }));
-      await fetch("/api/notifications/subscribe", {
+      if (existingSub) await existingSub.unsubscribe();
+
+      const subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey,
+      });
+
+      // Save to server
+      const res = await fetch("/api/notifications/subscribe", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(subscription.toJSON()),
       });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setPushError(`サーバー保存失敗: ${data.error || res.status}`);
+        setSubscriptionSaved(false);
+        return false;
+      }
+
+      setSubscriptionSaved(true);
+      return true;
     } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setPushError(`登録エラー: ${msg}`);
+      setSubscriptionSaved(false);
       console.warn("[Push] Subscribe failed:", e);
+      return false;
+    }
+  };
+
+  const checkSubscriptionStatus = async () => {
+    try {
+      const res = await fetch("/api/notifications/status");
+      if (!res.ok) return;
+      const data = await res.json();
+      setSubscriptionSaved(data.hasSubscription === true);
+      if (!data.upstashOk) {
+        setPushError(`Upstash接続エラー: ${data.upstashError || "不明"}`);
+      }
+    } catch {
+      // silent
     }
   };
 
@@ -345,7 +394,9 @@ export default function Home() {
     if ("Notification" in window) {
       const permission = await Notification.requestPermission();
       setNotificationPermission(permission);
-      if (permission === "granted") await subscribeToPush();
+      if (permission === "granted") {
+        await subscribeToPush();
+      }
     }
   };
 
@@ -659,22 +710,81 @@ export default function Home() {
             </button>
           </div>
         )}
+
         {notificationPermission === "granted" && (
-          <div className="bg-green-50 border border-green-200 rounded-xl p-3 mb-4 flex items-center gap-3">
-            <span className="text-green-500 text-xl">🔔</span>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm text-green-800 font-medium">通知が有効です</p>
-              <p className="text-xs text-green-600">8:30・15:00 に自動通知されます</p>
+          <div className="mb-4 space-y-2">
+            {/* Push error */}
+            {pushError && (
+              <div className="bg-red-50 border border-red-200 rounded-xl p-3 flex items-start gap-2">
+                <span className="text-red-500 flex-shrink-0">⚠️</span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-semibold text-red-700">通知エラー</p>
+                  <p className="text-xs text-red-600 break-all">{pushError}</p>
+                </div>
+                <button onClick={() => setPushError(null)} className="text-red-400 flex-shrink-0">✕</button>
+              </div>
+            )}
+
+            <div className={`border rounded-xl p-3 ${
+              subscriptionSaved === false
+                ? "bg-orange-50 border-orange-200"
+                : "bg-green-50 border-green-200"
+            }`}>
+              <div className="flex items-center gap-3">
+                <span className="text-xl flex-shrink-0">
+                  {subscriptionSaved === false ? "⚠️" : "🔔"}
+                </span>
+                <div className="flex-1 min-w-0">
+                  <p className={`text-sm font-medium ${
+                    subscriptionSaved === false ? "text-orange-800" : "text-green-800"
+                  }`}>
+                    {subscriptionSaved === null
+                      ? "通知確認中..."
+                      : subscriptionSaved
+                      ? "通知が有効です"
+                      : "通知が未登録です"}
+                  </p>
+                  <p className={`text-xs ${
+                    subscriptionSaved === false ? "text-orange-600" : "text-green-600"
+                  }`}>
+                    {subscriptionSaved === false
+                      ? "「再登録」を押してください"
+                      : "8:30・15:00 に自動通知されます"}
+                  </p>
+                </div>
+                <div className="flex flex-col gap-1.5 flex-shrink-0">
+                  {subscriptionSaved === false ? (
+                    <button
+                      onClick={subscribeToPush}
+                      className="bg-orange-500 text-white text-xs font-semibold py-2 px-3 rounded-lg whitespace-nowrap active:scale-95"
+                    >
+                      再登録
+                    </button>
+                  ) : (
+                    <button
+                      onClick={async () => {
+                        const res = await fetch("/api/notifications/test", { method: "POST" });
+                        const data = await res.json().catch(() => ({}));
+                        if (!res.ok) {
+                          setPushError(data.error || `テスト送信失敗 (${res.status})`);
+                        } else {
+                          // success — notification should appear shortly
+                        }
+                      }}
+                      className="bg-green-500 text-white text-xs font-semibold py-2 px-3 rounded-lg whitespace-nowrap active:scale-95"
+                    >
+                      テスト送信
+                    </button>
+                  )}
+                  <button
+                    onClick={subscribeToPush}
+                    className="bg-white border border-gray-300 text-gray-600 text-xs font-medium py-1.5 px-2 rounded-lg whitespace-nowrap active:scale-95"
+                  >
+                    再登録
+                  </button>
+                </div>
+              </div>
             </div>
-            <button
-              onClick={async () => {
-                const res = await fetch("/api/notifications/test", { method: "POST" });
-                if (!res.ok) setError("テスト通知に失敗しました（先にアプリを再読み込みしてください）");
-              }}
-              className="bg-green-500 text-white text-xs font-semibold py-2 px-3 rounded-lg whitespace-nowrap active:scale-95"
-            >
-              テスト送信
-            </button>
           </div>
         )}
 
