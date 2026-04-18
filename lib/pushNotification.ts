@@ -10,10 +10,13 @@ function getRedis() {
 }
 
 function initWebPush() {
+  // web-push requires base64url WITHOUT padding ("=") - strip it if present
+  const vapidPublicKey  = (process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY  || "").replace(/=/g, "");
+  const vapidPrivateKey = (process.env.VAPID_PRIVATE_KEY             || "").replace(/=/g, "");
   webpush.setVapidDetails(
     process.env.VAPID_SUBJECT || "https://er-schedule-app.vercel.app",
-    process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!,
-    process.env.VAPID_PRIVATE_KEY!
+    vapidPublicKey,
+    vapidPrivateKey
   );
 }
 
