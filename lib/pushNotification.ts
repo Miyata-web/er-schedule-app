@@ -9,10 +9,15 @@ function getRedis() {
   };
 }
 
+/** Convert any base64 variant → base64url (no padding, URL-safe chars) */
+function toBase64Url(key: string): string {
+  return key.trim().replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
+}
+
 function initWebPush() {
-  // web-push requires base64url WITHOUT padding ("=") - strip it if present
-  const vapidPublicKey  = (process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY  || "").replace(/=/g, "");
-  const vapidPrivateKey = (process.env.VAPID_PRIVATE_KEY             || "").replace(/=/g, "");
+  const vapidPublicKey  = toBase64Url(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY  || "");
+  const vapidPrivateKey = toBase64Url(process.env.VAPID_PRIVATE_KEY             || "");
+  console.log(`[Push] VAPID pubkey length=${vapidPublicKey.length} first10=${vapidPublicKey.slice(0, 10)}`);
   webpush.setVapidDetails(
     process.env.VAPID_SUBJECT || "https://er-schedule-app.vercel.app",
     vapidPublicKey,
