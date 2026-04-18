@@ -19,7 +19,10 @@ function initWebPush() {
 
 export async function saveSubscription(subscription: object): Promise<void> {
   const { url, token } = getRedis();
-  await fetch(`${url}/set/${SUBSCRIPTION_KEY}`, {
+  if (!url || !token) {
+    throw new Error("Upstash環境変数が未設定です (UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN)");
+  }
+  const res = await fetch(`${url}/set/${SUBSCRIPTION_KEY}`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
@@ -27,6 +30,10 @@ export async function saveSubscription(subscription: object): Promise<void> {
     },
     body: JSON.stringify([JSON.stringify(subscription)]),
   });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Upstash保存失敗 (${res.status}): ${text}`);
+  }
 }
 
 export async function getSubscription(): Promise<webpush.PushSubscription | null> {
