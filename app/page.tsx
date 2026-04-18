@@ -836,7 +836,7 @@ export default function Home() {
                       ? subscribeStep
                       : subscriptionSaved === false
                       ? "「再登録」を押してください"
-                      : "ToDoが完了していない場合、15:00に自動通知されます"}
+                      : "15:00に再度自動通知されます"}
                   </p>
                 </div>
                 {subscriptionSaved === false && (
