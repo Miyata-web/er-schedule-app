@@ -624,7 +624,8 @@ export default function Home() {
     return (
       <div className="min-h-screen bg-gradient-to-b from-blue-800 to-blue-600 flex flex-col items-center justify-center px-4">
         <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-sm text-center">
-          <div className="text-5xl mb-4">🏥</div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/icons/icon-192x192.png" alt="ER Schedule" className="w-16 h-16 rounded-2xl mx-auto mb-4 shadow-md" />
           <h1 className="text-2xl font-bold text-blue-900 mb-2">ER スケジュール</h1>
           <p className="text-gray-500 text-sm mb-6">救急業務の予定管理アプリ</p>
           <button
@@ -696,7 +697,8 @@ export default function Home() {
         <div className="flex items-center justify-between max-w-lg mx-auto">
           <div>
             <div className="flex items-center gap-2">
-              <span className="text-xl">🏥</span>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/icons/icon-192x192.png" alt="ER Schedule" className="w-7 h-7 rounded-lg" />
               <h1 className="text-lg font-bold">ER スケジュール</h1>
             </div>
             <p className="text-blue-200 text-xs mt-0.5">{todayJapanese}</p>
@@ -802,38 +804,18 @@ export default function Home() {
                       : "8:30・15:00 に自動通知されます"}
                   </p>
                 </div>
-                <div className="flex flex-col gap-1.5 flex-shrink-0">
-                  {subscriptionSaved === false ? (
-                    <button
-                      onClick={subscribeToPush}
-                      disabled={isSubscribing}
-                      className="bg-orange-500 disabled:bg-orange-300 text-white text-xs font-semibold py-2 px-3 rounded-lg active:scale-95 flex items-center gap-1"
-                    >
-                      {isSubscribing
-                        ? <><span className="animate-spin inline-block">↻</span></>
-                        : "再登録"}
-                    </button>
-                  ) : (
-                    <button
-                      onClick={async () => {
-                        const res = await fetch("/api/notifications/test", { method: "POST" });
-                        const data = await res.json().catch(() => ({}));
-                        if (!res.ok) {
-                          setPushError(data.error || `テスト送信失敗 (${res.status})`);
-                        }
-                      }}
-                      className="bg-green-500 text-white text-xs font-semibold py-2 px-3 rounded-lg whitespace-nowrap active:scale-95"
-                    >
-                      テスト送信
-                    </button>
-                  )}
+                <div className="flex-shrink-0">
                   <button
                     onClick={subscribeToPush}
                     disabled={isSubscribing}
-                    className="bg-white border border-gray-300 text-gray-600 text-xs font-medium py-1.5 px-2 rounded-lg active:scale-95 flex items-center justify-center gap-1"
+                    className={`text-white text-xs font-semibold py-2 px-3 rounded-lg active:scale-95 flex items-center gap-1 ${
+                      subscriptionSaved === false
+                        ? "bg-orange-500 disabled:bg-orange-300"
+                        : "bg-white border border-gray-300 text-gray-600"
+                    }`}
                   >
                     {isSubscribing
-                      ? <span className="animate-spin inline-block text-xs">↻</span>
+                      ? <span className="animate-spin inline-block">↻</span>
                       : "再登録"}
                   </button>
                 </div>
