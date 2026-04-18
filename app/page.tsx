@@ -801,24 +801,22 @@ export default function Home() {
                       ? subscribeStep
                       : subscriptionSaved === false
                       ? "「再登録」を押してください"
-                      : "8:30・15:00 に自動通知されます"}
+                      : "ToDoが完了していない場合、15:00に自動通知されます"}
                   </p>
                 </div>
-                <div className="flex-shrink-0">
-                  <button
-                    onClick={subscribeToPush}
-                    disabled={isSubscribing}
-                    className={`text-white text-xs font-semibold py-2 px-3 rounded-lg active:scale-95 flex items-center gap-1 ${
-                      subscriptionSaved === false
-                        ? "bg-orange-500 disabled:bg-orange-300"
-                        : "bg-white border border-gray-300 text-gray-600"
-                    }`}
-                  >
-                    {isSubscribing
-                      ? <span className="animate-spin inline-block">↻</span>
-                      : "再登録"}
-                  </button>
-                </div>
+                {subscriptionSaved === false && (
+                  <div className="flex-shrink-0">
+                    <button
+                      onClick={subscribeToPush}
+                      disabled={isSubscribing}
+                      className="bg-orange-500 disabled:bg-orange-300 text-white text-xs font-semibold py-2 px-3 rounded-lg active:scale-95 flex items-center gap-1"
+                    >
+                      {isSubscribing
+                        ? <span className="animate-spin inline-block">↻</span>
+                        : "再登録"}
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           </div>
