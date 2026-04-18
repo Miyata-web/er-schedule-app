@@ -267,8 +267,15 @@ export default function Home() {
     try {
       const res  = await fetch("/api/calendar/events");
       const data = await res.json();
-      if (!res.ok) setError(data.error || "予定の取得に失敗しました");
-      else setEvents(data.events || []);
+      if (!res.ok) {
+        if (data.error === "SessionExpired") {
+          setError("セッションの有効期限が切れました。一度ログアウトして再ログインしてください。");
+        } else {
+          setError(data.error || "予定の取得に失敗しました");
+        }
+      } else {
+        setEvents(data.events || []);
+      }
     } catch {
       setError("ネットワークエラーが発生しました");
     } finally {
@@ -284,8 +291,15 @@ export default function Home() {
     try {
       const res  = await fetch(`/api/calendar/events?start=${start}&end=${end}`);
       const data = await res.json();
-      if (!res.ok) setError(data.error || "予定の取得に失敗しました");
-      else setRangeEvents(data.events || []);
+      if (!res.ok) {
+        if (data.error === "SessionExpired") {
+          setError("セッションの有効期限が切れました。一度ログアウトして再ログインしてください。");
+        } else {
+          setError(data.error || "予定の取得に失敗しました");
+        }
+      } else {
+        setRangeEvents(data.events || []);
+      }
     } catch {
       setError("ネットワークエラーが発生しました");
     } finally {

@@ -6,7 +6,13 @@ export async function GET(request: Request) {
   try {
     const session = await auth();
 
-    if (!session || !session.accessToken) {
+    if (!session) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    if ((session as { error?: string }).error === "RefreshAccessTokenError") {
+      return NextResponse.json({ error: "SessionExpired" }, { status: 401 });
+    }
+    if (!session.accessToken) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
