@@ -745,8 +745,8 @@ export default function Home() {
       {/* ── Main Content ─────────────────────────────────────────────── */}
       <main className="max-w-lg mx-auto px-4 py-4 pb-24">
 
-        {/* Notification banners */}
-        {notificationPermission === "default" && (
+        {/* Notification banners — today tab only */}
+        {activeTab === "today" && notificationPermission === "default" && (
           <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-3 mb-4 flex items-center gap-3">
             <span className="text-yellow-500 text-xl">🔔</span>
             <div className="flex-1 min-w-0">
@@ -762,7 +762,7 @@ export default function Home() {
           </div>
         )}
 
-        {notificationPermission === "granted" && (
+        {activeTab === "today" && notificationPermission === "granted" && (
           <div className="mb-4 space-y-2">
             {/* Push error */}
             {pushError && (
@@ -887,27 +887,29 @@ export default function Home() {
         {/* ══════════════════════ WEEKLY VIEW ══════════════════════════ */}
         {activeTab === "weekly" && (
           <section className="mb-6">
-            {/* Navigation */}
-            <div className="flex items-center gap-2 mb-4">
-              <NavBtn onClick={() => setWeekOffset((w) => w - 1)}>‹</NavBtn>
-              <div className="flex-1 text-center">
-                <p className="text-sm font-bold text-gray-800">{weekInfo.label}</p>
-                {weekOffset !== 0 && (
-                  <button
-                    onClick={() => setWeekOffset(0)}
-                    className="text-xs text-blue-500 mt-0.5"
-                  >
-                    今週に戻る
-                  </button>
-                )}
+            {/* Navigation — sticky below tab bar */}
+            <div className="sticky top-[45px] z-10 bg-gray-50 -mx-4 px-4 py-2 mb-4 border-b border-gray-200 shadow-sm">
+              <div className="flex items-center gap-2">
+                <NavBtn onClick={() => setWeekOffset((w) => w - 1)}>‹</NavBtn>
+                <div className="flex-1 text-center">
+                  <p className="text-sm font-bold text-gray-800">{weekInfo.label}</p>
+                  {weekOffset !== 0 && (
+                    <button
+                      onClick={() => setWeekOffset(0)}
+                      className="text-xs text-blue-500 mt-0.5"
+                    >
+                      今週に戻る
+                    </button>
+                  )}
+                </div>
+                <NavBtn
+                  onClick={() => fetchRangeEvents(weekInfo.start, weekInfo.end)}
+                  disabled={rangeLoading}
+                >
+                  <span className={rangeLoading ? "animate-spin inline-block text-sm" : "text-sm"}>↻</span>
+                </NavBtn>
+                <NavBtn onClick={() => setWeekOffset((w) => w + 1)}>›</NavBtn>
               </div>
-              <NavBtn
-                onClick={() => fetchRangeEvents(weekInfo.start, weekInfo.end)}
-                disabled={rangeLoading}
-              >
-                <span className={rangeLoading ? "animate-spin inline-block text-sm" : "text-sm"}>↻</span>
-              </NavBtn>
-              <NavBtn onClick={() => setWeekOffset((w) => w + 1)}>›</NavBtn>
             </div>
 
             {/* Day list */}
