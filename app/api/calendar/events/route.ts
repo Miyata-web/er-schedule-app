@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { google } from "googleapis";
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const session = await auth();
 
@@ -35,29 +35,35 @@ export async function GET() {
       );
     }
 
-    // Get today's events
-    const now = new Date();
-    const startOfDay = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate(),
-      0,
-      0,
-      0
-    );
-    const endOfDay = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate(),
-      23,
-      59,
-      59
-    );
+    // Parse optional start/end query params (YYYY-MM-DD format)
+    const { searchParams } = new URL(request.url);
+    const startParam = searchParams.get("start"); // YYYY-MM-DD
+    const endParam   = searchParams.get("end");   // YYYY-MM-DD
+
+    let startOfRange: Date;
+    let endOfRange: Date;
+
+    if (startParam && endParam) {
+      // Use the provided date range (interpret as JST dates)
+      startOfRange = new Date(`${startParam}T00:00:00+09:00`);
+      endOfRange   = new Date(`${endParam}T23:59:59+09:00`);
+    } else {
+      // Default: today in JST
+      // Vercel servers run on UTC, so we must calculate the JST date explicitly
+      const now = new Date();
+      const jstOffset = 9 * 60 * 60 * 1000;
+      const jstNow = new Date(now.getTime() + jstOffset + now.getTimezoneOffset() * 60 * 1000);
+      const year  = jstNow.getUTCFullYear();
+      const month = String(jstNow.getUTCMonth() + 1).padStart(2, "0");
+      const day   = String(jstNow.getUTCDate()).padStart(2, "0");
+      startOfRange = new Date(`${year}-${month}-${day}T00:00:00+09:00`);
+      endOfRange   = new Date(`${year}-${month}-${day}T23:59:59+09:00`);
+    }
 
     const eventsResponse = await calendar.events.list({
       calendarId: erCalendar.id,
-      timeMin: startOfDay.toISOString(),
-      timeMax: endOfDay.toISOString(),
+      timeMin: startOfRange.toISOString(),
+      timeMax: endOfRange.toISOString(),
       singleEvents: true,
       orderBy: "startTime",
     });
