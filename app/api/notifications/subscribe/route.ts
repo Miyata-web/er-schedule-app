@@ -19,7 +19,8 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("[Push] Subscribe error:", error);
-    return NextResponse.json({ error: "Failed to save subscription" }, { status: 500 });
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error("[Push] Subscribe error:", msg);
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

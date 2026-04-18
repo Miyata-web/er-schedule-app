@@ -44,7 +44,22 @@ export async function getSubscription(): Promise<webpush.PushSubscription | null
   });
   const data = await res.json();
   if (!data.result) return null;
-  return JSON.parse(data.result) as webpush.PushSubscription;
+
+  try {
+    const parsed = JSON.parse(data.result);
+    // Stored as array format: ["stringified_subscription"]
+    if (Array.isArray(parsed)) {
+      return JSON.parse(parsed[0]) as webpush.PushSubscription;
+    }
+    // Stored as direct object or stringified object
+    if (typeof parsed === "string") {
+      return JSON.parse(parsed) as webpush.PushSubscription;
+    }
+    return parsed as webpush.PushSubscription;
+  } catch {
+    console.error("[Push] Failed to parse subscription from Redis");
+    return null;
+  }
 }
 
 export async function sendPushNotification(
