@@ -253,6 +253,7 @@ export default function Home() {
   const recognitionRef       = useRef<ISpeechRecognition | null>(null);
   const recognitionResultRef = useRef<boolean>(false);
   const recognitionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const monthDayRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
   // Today's JST date string
   const todayStr = formatDateKey(jstShifted());
@@ -845,7 +846,7 @@ export default function Home() {
           <section className="mb-6">
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-base font-bold text-gray-800 flex items-center gap-2">
-                <span>📋</span>今日の予定
+                <span>📋</span>本日のToDoリスト
               </h2>
               <button
                 onClick={fetchEvents}
@@ -1042,16 +1043,30 @@ export default function Home() {
                   const isToday   = key === todayStr;
                   const dow = (monthInfo.firstDow + i) % 7;
                   return (
-                    <div key={key} className="flex flex-col items-center py-0.5">
+                    <div
+                      key={key}
+                      className={`flex flex-col items-center py-0.5 ${hasEvents ? "cursor-pointer" : ""}`}
+                      onClick={() => {
+                        if (!hasEvents) return;
+                        const el = monthDayRefs.current.get(key);
+                        if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+                      }}
+                    >
                       <div
                         className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium ${
                           isToday
                             ? "bg-blue-600 text-white font-bold"
+                            : hasEvents
+                            ? dow === 0
+                              ? "text-red-500 font-semibold"
+                              : dow === 6
+                              ? "text-blue-500 font-semibold"
+                              : "text-gray-800 font-semibold"
                             : dow === 0
-                            ? "text-red-500"
+                            ? "text-red-400"
                             : dow === 6
-                            ? "text-blue-500"
-                            : "text-gray-700"
+                            ? "text-blue-400"
+                            : "text-gray-400"
                         }`}
                       >
                         {dayNum}
@@ -1088,7 +1103,13 @@ export default function Home() {
                   const dow      = dowFromKey(dateKey);
                   const isToday  = dateKey === todayStr;
                   return (
-                    <div key={dateKey}>
+                    <div
+                      key={dateKey}
+                      ref={(el) => {
+                        if (el) monthDayRefs.current.set(dateKey, el);
+                        else monthDayRefs.current.delete(dateKey);
+                      }}
+                    >
                       {/* Day header */}
                       <div
                         className={`flex items-center gap-2 mb-1.5 ${
