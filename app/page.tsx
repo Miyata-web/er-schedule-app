@@ -45,7 +45,14 @@ declare global {
   }
 }
 
-type TabType = "today" | "weekly" | "monthly";
+type TabType = "today" | "weekly" | "todo";
+
+interface TodoItem {
+  id: string;
+  text: string;
+  done: boolean;
+  createdAt: number;
+}
 
 // ── JST Utility Functions ─────────────────────────────────────────────
 
@@ -226,12 +233,15 @@ export default function Home() {
   const [events, setEvents]           = useState<CalendarEvent[]>([]);
   const [loading, setLoading]         = useState(false);
 
-  // Range views (weekly / monthly)
+  // Tab & range views
   const [activeTab, setActiveTab]     = useState<TabType>("today");
-  const [weekOffset, setWeekOffset]   = useState(0);
-  const [monthOffset, setMonthOffset] = useState(0);
+  const [weekOffset, setWeekOffset] = useState(0);
   const [rangeEvents, setRangeEvents] = useState<CalendarEvent[]>([]);
   const [rangeLoading, setRangeLoading] = useState(false);
+
+  // ToDo list
+  const [todos, setTodos]         = useState<TodoItem[]>([]);
+  const [todoInput, setTodoInput] = useState("");
 
   // Shared UI state
   const [checkedItems, setCheckedItems]       = useState<Set<string>>(new Set());
@@ -253,7 +263,6 @@ export default function Home() {
   const recognitionRef       = useRef<ISpeechRecognition | null>(null);
   const recognitionResultRef = useRef<boolean>(false);
   const recognitionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const monthDayRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
   // Today's JST date string
   const todayStr = formatDateKey(jstShifted());
@@ -330,11 +339,23 @@ export default function Home() {
     if (activeTab === "weekly") {
       const { start, end } = getWeekInfo(weekOffset);
       fetchRangeEvents(start, end);
-    } else if (activeTab === "monthly") {
-      const { start, end } = getMonthInfo(monthOffset);
-      fetchRangeEvents(start, end);
     }
-  }, [session, activeTab, weekOffset, monthOffset, fetchRangeEvents]);
+  }, [session, activeTab, weekOffset, fetchRangeEvents]);
+
+  // Load todos from localStorage
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("er_todos");
+      if (saved) setTodos(JSON.parse(saved));
+    } catch { /* ignore */ }
+  }, []);
+
+  // Save todos to localStorage whenever they change
+  useEffect(() => {
+    try {
+      localStorage.setItem("er_todos", JSON.stringify(todos));
+    } catch { /* ignore */ }
+  }, [todos]);
 
   // ── Push Notifications ───────────────────────────────────────────────
 
@@ -569,10 +590,8 @@ export default function Home() {
         // Refresh the active view
         if (activeTab === "today") {
           await fetchEvents();
-        } else {
-          const info = activeTab === "weekly"
-            ? getWeekInfo(weekOffset)
-            : getMonthInfo(monthOffset);
+        } else if (activeTab === "weekly") {
+          const info = getWeekInfo(weekOffset);
           await fetchRangeEvents(info.start, info.end);
         }
       }
@@ -587,6 +606,32 @@ export default function Home() {
     setParsedEvent(null);
     setRecognizedText("");
     setInputText("");
+  };
+
+  // ── ToDo Operations ──────────────────────────────────────────────────
+
+  const addTodo = () => {
+    const text = todoInput.trim();
+    if (!text) return;
+    setTodos((prev) => [
+      { id: Date.now().toString(), text, done: false, createdAt: Date.now() },
+      ...prev,
+    ]);
+    setTodoInput("");
+  };
+
+  const toggleTodo = (id: string) => {
+    setTodos((prev) =>
+      prev.map((t) => (t.id === id ? { ...t, done: !t.done } : t))
+    );
+  };
+
+  const deleteTodo = (id: string) => {
+    setTodos((prev) => prev.filter((t) => t.id !== id));
+  };
+
+  const clearDoneTodos = () => {
+    setTodos((prev) => prev.filter((t) => !t.done));
   };
 
   // ── Format Helpers ───────────────────────────────────────────────────
@@ -661,17 +706,6 @@ export default function Home() {
     weekEventMap.get(key)!.push(ev);
   }
 
-  const monthInfo = getMonthInfo(monthOffset);
-
-  // Monthly: group events by date
-  const monthEventMap = new Map<string, CalendarEvent[]>();
-  for (const ev of rangeEvents) {
-    const key = eventDateKey(ev);
-    if (!monthEventMap.has(key)) monthEventMap.set(key, []);
-    monthEventMap.get(key)!.push(ev);
-  }
-  const monthDatesWithEvents = Array.from(monthEventMap.keys()).sort();
-
   // ── Nav Button (shared style) ────────────────────────────────────────
 
   const NavBtn = ({ onClick, children, disabled }: {
@@ -726,7 +760,7 @@ export default function Home() {
       {/* ── Tab Navigation (sticky) ───────────────────────────────────── */}
       <div className="sticky top-0 z-20 bg-white border-b border-gray-200 shadow-sm">
         <div className="max-w-lg mx-auto flex">
-          {(["today", "weekly", "monthly"] as TabType[]).map((tab) => (
+          {(["today", "weekly", "todo"] as TabType[]).map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -736,7 +770,7 @@ export default function Home() {
                   : "text-gray-500 border-transparent hover:text-gray-700"
               }`}
             >
-              {tab === "today" ? "今日" : tab === "weekly" ? "週間" : "月間"}
+              {tab === "today" ? "今日" : tab === "weekly" ? "週間" : "ToDo"}
             </button>
           ))}
         </div>
@@ -990,171 +1024,83 @@ export default function Home() {
           </section>
         )}
 
-        {/* ══════════════════════ MONTHLY VIEW ══════════════════════════ */}
-        {activeTab === "monthly" && (
+        {/* ══════════════════════ TODO VIEW ══════════════════════════ */}
+        {activeTab === "todo" && (
           <section className="mb-6">
-            {/* Navigation */}
-            <div className="flex items-center gap-2 mb-4">
-              <NavBtn onClick={() => setMonthOffset((m) => m - 1)}>‹</NavBtn>
-              <div className="flex-1 text-center">
-                <p className="text-sm font-bold text-gray-800">{monthInfo.label}</p>
-                {monthOffset !== 0 && (
-                  <button
-                    onClick={() => setMonthOffset(0)}
-                    className="text-xs text-blue-500 mt-0.5"
-                  >
-                    今月に戻る
-                  </button>
-                )}
-              </div>
-              <NavBtn
-                onClick={() => fetchRangeEvents(monthInfo.start, monthInfo.end)}
-                disabled={rangeLoading}
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-base font-bold text-gray-800 flex items-center gap-2">
+                <span>✅</span>ToDoリスト
+              </h2>
+              {todos.some((t) => t.done) && (
+                <button
+                  onClick={clearDoneTodos}
+                  className="text-xs text-red-400 font-medium"
+                >
+                  完了済みを削除
+                </button>
+              )}
+            </div>
+
+            {/* Add input */}
+            <div className="flex gap-2 mb-4">
+              <input
+                type="text"
+                value={todoInput}
+                onChange={(e) => setTodoInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") addTodo(); }}
+                placeholder="タスクを入力..."
+                className="flex-1 border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white"
+              />
+              <button
+                onClick={addTodo}
+                disabled={!todoInput.trim()}
+                className="bg-blue-600 disabled:bg-gray-200 disabled:text-gray-400 text-white font-semibold px-4 rounded-xl text-sm active:scale-95 transition-colors"
               >
-                <span className={rangeLoading ? "animate-spin inline-block text-sm" : "text-sm"}>↻</span>
-              </NavBtn>
-              <NavBtn onClick={() => setMonthOffset((m) => m + 1)}>›</NavBtn>
+                追加
+              </button>
             </div>
 
-            {/* Mini Calendar */}
-            <div className="bg-white rounded-2xl shadow-sm p-4 mb-4">
-              {/* Weekday headers */}
-              <div className="grid grid-cols-7 mb-1">
-                {DOW_JA.map((label, i) => (
-                  <div
-                    key={label}
-                    className={`text-center text-xs font-semibold py-1 ${
-                      i === 0 ? "text-red-400" : i === 6 ? "text-blue-400" : "text-gray-400"
-                    }`}
-                  >
-                    {label}
-                  </div>
-                ))}
-              </div>
-              {/* Day cells */}
-              <div className="grid grid-cols-7">
-                {/* Leading empty cells */}
-                {Array.from({ length: monthInfo.firstDow }, (_, i) => (
-                  <div key={`e${i}`} />
-                ))}
-                {/* Days */}
-                {Array.from({ length: monthInfo.lastDay }, (_, i) => {
-                  const dayNum = i + 1;
-                  const key = `${monthInfo.year}-${String(monthInfo.month + 1).padStart(2, "0")}-${String(dayNum).padStart(2, "0")}`;
-                  const hasEvents = monthEventMap.has(key);
-                  const isToday   = key === todayStr;
-                  const dow = (monthInfo.firstDow + i) % 7;
-                  return (
-                    <div
-                      key={key}
-                      className={`flex flex-col items-center py-0.5 ${hasEvents ? "cursor-pointer" : ""}`}
-                      onClick={() => {
-                        if (!hasEvents) return;
-                        const el = monthDayRefs.current.get(key);
-                        if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
-                      }}
-                    >
-                      <div
-                        className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium ${
-                          isToday
-                            ? "bg-blue-600 text-white font-bold"
-                            : hasEvents
-                            ? dow === 0
-                              ? "text-red-500 font-semibold"
-                              : dow === 6
-                              ? "text-blue-500 font-semibold"
-                              : "text-gray-800 font-semibold"
-                            : dow === 0
-                            ? "text-red-400"
-                            : dow === 6
-                            ? "text-blue-400"
-                            : "text-gray-400"
-                        }`}
-                      >
-                        {dayNum}
-                      </div>
-                      <div
-                        className={`w-1.5 h-1.5 rounded-full mt-0.5 ${
-                          hasEvents ? "bg-blue-400" : "bg-transparent"
-                        }`}
-                      />
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Monthly Event List */}
-            {rangeLoading ? (
+            {/* Todo list */}
+            {todos.length === 0 ? (
               <div className="bg-white rounded-xl shadow-sm p-8 text-center">
-                <div className="text-blue-400 animate-pulse text-2xl mb-2">⏳</div>
-                <p className="text-gray-500 text-sm">読み込み中...</p>
-              </div>
-            ) : monthDatesWithEvents.length === 0 ? (
-              <div className="bg-white rounded-xl shadow-sm p-8 text-center">
-                <div className="text-gray-300 text-4xl mb-3">📅</div>
-                <p className="text-gray-500 text-sm">この月に予定はありません</p>
+                <div className="text-gray-300 text-4xl mb-3">📝</div>
+                <p className="text-gray-500 text-sm">タスクがありません</p>
+                <p className="text-gray-400 text-xs mt-1">上のフォームから追加できます</p>
               </div>
             ) : (
-              <div className="space-y-4">
-                {monthDatesWithEvents.map((dateKey) => {
-                  const dayEvs   = monthEventMap.get(dateKey)!;
-                  const [, mStr, dStr] = dateKey.split("-");
-                  const monthNum = parseInt(mStr);
-                  const dayNum   = parseInt(dStr);
-                  const dow      = dowFromKey(dateKey);
-                  const isToday  = dateKey === todayStr;
-                  return (
-                    <div
-                      key={dateKey}
-                      ref={(el) => {
-                        if (el) monthDayRefs.current.set(dateKey, el);
-                        else monthDayRefs.current.delete(dateKey);
-                      }}
+              <div className="space-y-2">
+                {todos.map((todo) => (
+                  <div
+                    key={todo.id}
+                    className={`bg-white rounded-xl shadow-sm p-4 flex items-center gap-3 transition-opacity ${
+                      todo.done ? "opacity-50" : "opacity-100"
+                    }`}
+                  >
+                    <button
+                      onClick={() => toggleTodo(todo.id)}
+                      className={`w-6 h-6 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-colors ${
+                        todo.done
+                          ? "bg-green-500 border-green-500 text-white"
+                          : "border-gray-300 hover:border-blue-400"
+                      }`}
                     >
-                      {/* Day header */}
-                      <div
-                        className={`flex items-center gap-2 mb-1.5 ${
-                          isToday
-                            ? "text-blue-600"
-                            : dow === 0
-                            ? "text-red-500"
-                            : dow === 6
-                            ? "text-blue-500"
-                            : "text-gray-700"
-                        }`}
-                      >
-                        <div
-                          className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0 ${
-                            isToday ? "bg-blue-600 text-white" : ""
-                          }`}
-                        >
-                          {dayNum}
-                        </div>
-                        <span className="text-sm font-semibold">
-                          {monthNum}月{dayNum}日（{DOW_JA[dow]}）
-                        </span>
-                        {isToday && (
-                          <span className="text-xs bg-blue-600 text-white px-2 py-0.5 rounded-full">
-                            今日
-                          </span>
-                        )}
-                        <span className="ml-auto text-xs text-gray-400">{dayEvs.length}件</span>
-                      </div>
-                      <div className="space-y-1.5">
-                        {dayEvs.map((ev) => (
-                          <EventCard
-                            key={ev.id}
-                            event={ev}
-                            checked={checkedItems.has(ev.id)}
-                            onToggle={() => toggleCheck(ev.id)}
-                            formatTime={formatTime}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })}
+                      {todo.done && (
+                        <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+                          <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                        </svg>
+                      )}
+                    </button>
+                    <span className={`flex-1 text-sm ${todo.done ? "line-through text-gray-400" : "text-gray-800"}`}>
+                      {todo.text}
+                    </span>
+                    <button
+                      onClick={() => deleteTodo(todo.id)}
+                      className="text-gray-300 hover:text-red-400 transition-colors flex-shrink-0 text-lg leading-none"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
               </div>
             )}
           </section>
