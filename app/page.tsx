@@ -248,6 +248,7 @@ export default function Home() {
   const [subscriptionSaved, setSubscriptionSaved] = useState<boolean | null>(null); // null=unknown
   const [pushError, setPushError] = useState<string | null>(null);
   const [isSubscribing, setIsSubscribing] = useState(false);
+  const [subscribeStep, setSubscribeStep] = useState("");
 
   const recognitionRef       = useRef<ISpeechRecognition | null>(null);
   const recognitionResultRef = useRef<boolean>(false);
@@ -339,24 +340,40 @@ export default function Home() {
   const subscribeToPush = async (): Promise<boolean> => {
     if (isSubscribing) return false;
     setIsSubscribing(true);
+    setSubscribeStep("");
     setPushError(null);
     try {
-      if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+      // Step 1: Check browser support
+      setSubscribeStep("ブラウザ確認中...");
+      if (!("serviceWorker" in navigator)) {
+        setPushError("このブラウザはService Workerに対応していません");
+        return false;
+      }
+      if (!("PushManager" in window)) {
         setPushError("このブラウザはプッシュ通知に対応していません");
         return false;
       }
 
-      // Wait for SW with timeout (avoid infinite hang)
-      const registration = await Promise.race([
-        navigator.serviceWorker.ready,
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error("Service Worker の準備タイムアウト")), 10000)
-        ),
-      ]);
+      // Step 2: Get or register service worker (don't use .ready which can hang)
+      setSubscribeStep("Service Worker 確認中...");
+      let registration = await navigator.serviceWorker.getRegistration("/sw.js");
+      if (!registration) {
+        setSubscribeStep("Service Worker 登録中...");
+        registration = await navigator.serviceWorker.register("/sw.js");
+        // Wait briefly for activation
+        await new Promise<void>((resolve) => setTimeout(resolve, 1500));
+        registration = await navigator.serviceWorker.getRegistration("/sw.js");
+      }
+      if (!registration) {
+        setPushError("Service Worker の取得に失敗しました。アプリを再読み込みしてください。");
+        return false;
+      }
 
+      // Step 3: Check VAPID key
+      setSubscribeStep("VAPID鍵確認中...");
       const vapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
       if (!vapidKey) {
-        setPushError("VAPID公開鍵が未設定です（Vercel環境変数を確認してください）");
+        setPushError("VAPID公開鍵が未設定です（Vercel環境変数: NEXT_PUBLIC_VAPID_PUBLIC_KEY）");
         return false;
       }
 
@@ -367,7 +384,8 @@ export default function Home() {
       const applicationServerKey = new Uint8Array(rawData.length);
       for (let i = 0; i < rawData.length; ++i) applicationServerKey[i] = rawData.charCodeAt(i);
 
-      // Unsubscribe existing subscription to force a fresh one
+      // Step 4: Subscribe to push
+      setSubscribeStep("プッシュ登録中...");
       const existingSub = await registration.pushManager.getSubscription();
       if (existingSub) await existingSub.unsubscribe();
 
@@ -376,7 +394,8 @@ export default function Home() {
         applicationServerKey,
       });
 
-      // Save subscription to server (Upstash Redis)
+      // Step 5: Save to server
+      setSubscribeStep("サーバーに保存中...");
       const res = await fetch("/api/notifications/subscribe", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -390,16 +409,18 @@ export default function Home() {
         return false;
       }
 
+      setSubscribeStep("");
       setSubscriptionSaved(true);
       return true;
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      setPushError(`登録エラー: ${msg}`);
+      setPushError(`エラー [${subscribeStep || "不明"}]: ${msg}`);
       setSubscriptionSaved(false);
       console.warn("[Push] Subscribe failed:", e);
       return false;
     } finally {
       setIsSubscribing(false);
+      setSubscribeStep("");
     }
   };
 
@@ -774,7 +795,9 @@ export default function Home() {
                   <p className={`text-xs ${
                     subscriptionSaved === false ? "text-orange-600" : "text-green-600"
                   }`}>
-                    {subscriptionSaved === false
+                    {isSubscribing && subscribeStep
+                      ? subscribeStep
+                      : subscriptionSaved === false
                       ? "「再登録」を押してください"
                       : "8:30・15:00 に自動通知されます"}
                   </p>
@@ -784,10 +807,10 @@ export default function Home() {
                     <button
                       onClick={subscribeToPush}
                       disabled={isSubscribing}
-                      className="bg-orange-500 disabled:bg-orange-300 text-white text-xs font-semibold py-2 px-3 rounded-lg whitespace-nowrap active:scale-95 flex items-center gap-1"
+                      className="bg-orange-500 disabled:bg-orange-300 text-white text-xs font-semibold py-2 px-3 rounded-lg active:scale-95 flex items-center gap-1"
                     >
                       {isSubscribing
-                        ? <><span className="animate-spin inline-block">↻</span> 登録中...</>
+                        ? <><span className="animate-spin inline-block">↻</span></>
                         : "再登録"}
                     </button>
                   ) : (
@@ -807,10 +830,10 @@ export default function Home() {
                   <button
                     onClick={subscribeToPush}
                     disabled={isSubscribing}
-                    className="bg-white border border-gray-300 text-gray-600 text-xs font-medium py-1.5 px-2 rounded-lg whitespace-nowrap active:scale-95 flex items-center justify-center gap-1"
+                    className="bg-white border border-gray-300 text-gray-600 text-xs font-medium py-1.5 px-2 rounded-lg active:scale-95 flex items-center justify-center gap-1"
                   >
                     {isSubscribing
-                      ? <><span className="animate-spin inline-block text-xs">↻</span> 登録中...</>
+                      ? <span className="animate-spin inline-block text-xs">↻</span>
                       : "再登録"}
                   </button>
                 </div>
