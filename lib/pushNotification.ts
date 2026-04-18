@@ -65,9 +65,11 @@ export async function getSubscription(): Promise<webpush.PushSubscription | null
 export async function sendPushNotification(
   title: string,
   body: string
-): Promise<boolean> {
+): Promise<{ ok: boolean; error?: string }> {
   const subscription = await getSubscription();
-  if (!subscription) return false;
+  if (!subscription) {
+    return { ok: false, error: "subscription_not_found" };
+  }
 
   try {
     initWebPush();
@@ -82,9 +84,10 @@ export async function sendPushNotification(
         data: { url: "/" },
       })
     );
-    return true;
+    return { ok: true };
   } catch (error) {
-    console.error("Push notification failed:", error);
-    return false;
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error("Push notification failed:", msg);
+    return { ok: false, error: msg };
   }
 }

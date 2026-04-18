@@ -16,11 +16,11 @@ export async function GET(request: NextRequest) {
     weekday: "short",
   });
 
-  const success = await sendPushNotification(
+  const result = await sendPushNotification(
     "🌅 ER スケジュール - 今日の予定",
     `${today}の予定を確認してください。アプリを開いて今日のタスクをチェックしましょう。`
   );
 
-  console.log(`[Cron/Morning] Notification sent: ${success}`);
-  return NextResponse.json({ success, time: new Date().toISOString() });
+  console.log(`[Cron/Morning] Notification result:`, result);
+  return NextResponse.json({ success: result.ok, error: result.error, time: new Date().toISOString() });
 }
