@@ -247,6 +247,7 @@ export default function Home() {
     useState<NotificationPermission>("default");
   const [subscriptionSaved, setSubscriptionSaved] = useState<boolean | null>(null); // null=unknown
   const [pushError, setPushError] = useState<string | null>(null);
+  const [isSubscribing, setIsSubscribing] = useState(false);
 
   const recognitionRef       = useRef<ISpeechRecognition | null>(null);
   const recognitionResultRef = useRef<boolean>(false);
@@ -336,27 +337,37 @@ export default function Home() {
   // ── Push Notifications ───────────────────────────────────────────────
 
   const subscribeToPush = async (): Promise<boolean> => {
+    if (isSubscribing) return false;
+    setIsSubscribing(true);
     setPushError(null);
     try {
       if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
         setPushError("このブラウザはプッシュ通知に対応していません");
         return false;
       }
-      const registration = await navigator.serviceWorker.ready;
+
+      // Wait for SW with timeout (avoid infinite hang)
+      const registration = await Promise.race([
+        navigator.serviceWorker.ready,
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("Service Worker の準備タイムアウト")), 10000)
+        ),
+      ]);
+
       const vapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
       if (!vapidKey) {
-        setPushError("VAPID公開鍵が未設定です（環境変数を確認してください）");
+        setPushError("VAPID公開鍵が未設定です（Vercel環境変数を確認してください）");
         return false;
       }
 
-      // Convert VAPID public key
+      // Convert VAPID public key to Uint8Array
       const padding = "=".repeat((4 - (vapidKey.length % 4)) % 4);
       const base64  = (vapidKey + padding).replace(/-/g, "+").replace(/_/g, "/");
       const rawData = window.atob(base64);
       const applicationServerKey = new Uint8Array(rawData.length);
       for (let i = 0; i < rawData.length; ++i) applicationServerKey[i] = rawData.charCodeAt(i);
 
-      // Force new subscription (unsubscribe first to ensure fresh token)
+      // Unsubscribe existing subscription to force a fresh one
       const existingSub = await registration.pushManager.getSubscription();
       if (existingSub) await existingSub.unsubscribe();
 
@@ -365,7 +376,7 @@ export default function Home() {
         applicationServerKey,
       });
 
-      // Save to server
+      // Save subscription to server (Upstash Redis)
       const res = await fetch("/api/notifications/subscribe", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -387,6 +398,8 @@ export default function Home() {
       setSubscriptionSaved(false);
       console.warn("[Push] Subscribe failed:", e);
       return false;
+    } finally {
+      setIsSubscribing(false);
     }
   };
 
@@ -770,9 +783,12 @@ export default function Home() {
                   {subscriptionSaved === false ? (
                     <button
                       onClick={subscribeToPush}
-                      className="bg-orange-500 text-white text-xs font-semibold py-2 px-3 rounded-lg whitespace-nowrap active:scale-95"
+                      disabled={isSubscribing}
+                      className="bg-orange-500 disabled:bg-orange-300 text-white text-xs font-semibold py-2 px-3 rounded-lg whitespace-nowrap active:scale-95 flex items-center gap-1"
                     >
-                      再登録
+                      {isSubscribing
+                        ? <><span className="animate-spin inline-block">↻</span> 登録中...</>
+                        : "再登録"}
                     </button>
                   ) : (
                     <button
@@ -781,8 +797,6 @@ export default function Home() {
                         const data = await res.json().catch(() => ({}));
                         if (!res.ok) {
                           setPushError(data.error || `テスト送信失敗 (${res.status})`);
-                        } else {
-                          // success — notification should appear shortly
                         }
                       }}
                       className="bg-green-500 text-white text-xs font-semibold py-2 px-3 rounded-lg whitespace-nowrap active:scale-95"
@@ -792,9 +806,12 @@ export default function Home() {
                   )}
                   <button
                     onClick={subscribeToPush}
-                    className="bg-white border border-gray-300 text-gray-600 text-xs font-medium py-1.5 px-2 rounded-lg whitespace-nowrap active:scale-95"
+                    disabled={isSubscribing}
+                    className="bg-white border border-gray-300 text-gray-600 text-xs font-medium py-1.5 px-2 rounded-lg whitespace-nowrap active:scale-95 flex items-center justify-center gap-1"
                   >
-                    再登録
+                    {isSubscribing
+                      ? <><span className="animate-spin inline-block text-xs">↻</span> 登録中...</>
+                      : "再登録"}
                   </button>
                 </div>
               </div>
