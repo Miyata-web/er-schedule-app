@@ -1,5 +1,5 @@
 // ER Schedule Service Worker
-const CACHE_NAME = "er-schedule-v3";
+const CACHE_NAME = "er-schedule-v4";
 const STATIC_ASSETS = [
   "/",
   "/manifest.json",
