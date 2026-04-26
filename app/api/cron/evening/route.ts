@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { sendPushNotification } from "@/lib/pushNotification";
 import { fetchTodayEventCount } from "@/lib/googleCalendar";
 
-// Runs at 06:00 UTC = 3:00 PM JST
+// Runs at 11:00 UTC = 8:00 PM JST
 export async function GET(request: NextRequest) {
   // Verify Vercel cron secret
   const authHeader = request.headers.get("authorization");
@@ -11,17 +11,17 @@ export async function GET(request: NextRequest) {
   }
 
   const count = await fetchTodayEventCount();
-  console.log(`[Cron/Afternoon] Today's event count: ${count}`);
+  console.log(`[Cron/Evening] Today's event count: ${count}`);
 
   if (count === 0) {
     return NextResponse.json({ skipped: true, reason: "no_events_today" });
   }
 
   const result = await sendPushNotification(
-    "⏰ ER スケジュール - 午後のリマインダー",
-    `本日${count}件の予定があります。未完了のタスクを確認してください。`
+    "🌙 ER スケジュール - 夜のリマインダー",
+    `本日${count}件の予定があります。業務終了前に確認してください。`
   );
 
-  console.log(`[Cron/Afternoon] Notification result:`, result);
+  console.log(`[Cron/Evening] Notification result:`, result);
   return NextResponse.json({ success: result.ok, error: result.error, count, time: new Date().toISOString() });
 }

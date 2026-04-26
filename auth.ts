@@ -74,7 +74,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     },
 
     async session({ session, token }) {
-      session.accessToken = token.accessToken as string | undefined;
+      session.accessToken  = token.accessToken  as string | undefined;
+      session.refreshToken = token.refreshToken as string | undefined;
       // Surface token refresh errors so the UI can prompt re-login
       if (token.error) {
         session.error = token.error as string;

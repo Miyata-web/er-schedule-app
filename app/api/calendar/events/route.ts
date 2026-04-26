@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { google } from "googleapis";
+import { saveGoogleTokens } from "@/lib/pushNotification";
 
 export async function GET(request: Request) {
   try {
@@ -15,6 +16,9 @@ export async function GET(request: Request) {
     if (!session.accessToken) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+
+    // Save tokens to Upstash so cron jobs can access the calendar
+    saveGoogleTokens(session.accessToken, session.refreshToken).catch(() => {});
 
     // Set up OAuth2 client with the user's access token
     const oauth2Client = new google.auth.OAuth2(

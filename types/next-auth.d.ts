@@ -5,6 +5,8 @@ declare module "next-auth" {
   interface Session {
     /** Google OAuth access token for Calendar API calls */
     accessToken?: string;
+    /** Google OAuth refresh token */
+    refreshToken?: string;
     /** Set to "RefreshAccessTokenError" when refresh fails (user must re-login) */
     error?: string;
   }

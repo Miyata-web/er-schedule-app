@@ -52,17 +52,19 @@ interface TodoItem {
   text: string;
   done: boolean;
   createdAt: number;
-  sub?: boolean; // サブ項目（インデント表示）
+  sub?: boolean;       // サブ項目（インデント表示）
+  checkedAt?: number;  // チェックした日時（timestamp）
+  doneLabel?: string;  // 完了時の文言（例: "発注済み"）
 }
 
 const DEFAULT_TODOS: TodoItem[] = [
-  { id: "d1", text: "注射ラベルの注文（適宜）：総務課",                                         done: false, createdAt: 1 },
-  { id: "d2", text: "待合室の血圧計用紙交換",                                                    done: false, createdAt: 2 },
-  { id: "d3", text: "検査ラベル：検査科",                                                        done: false, createdAt: 3 },
-  { id: "d4", text: "印刷物",                                                                    done: false, createdAt: 4 },
-  { id: "d5", text: "アナムネ用紙の補充",                                                        done: false, createdAt: 5, sub: true },
-  { id: "d6", text: "スリッパ、紙コップの注文（適宜）",                                          done: false, createdAt: 6 },
-  { id: "d7", text: "オムツ庫→介護タオル・ピンクシート・感染袋・ペーパータオル（適宜）",          done: false, createdAt: 7 },
+  { id: "d1", text: "注射ラベルの注文（適宜）：総務課",                                         done: false, createdAt: 1, doneLabel: "発注済み" },
+  { id: "d2", text: "待合室の血圧計用紙交換",                                                    done: false, createdAt: 2, doneLabel: "交換済み" },
+  { id: "d3", text: "検査ラベル：検査科",                                                        done: false, createdAt: 3, doneLabel: "発注済み" },
+  { id: "d4", text: "印刷物",                                                                    done: false, createdAt: 4, doneLabel: "確認済み" },
+  { id: "d5", text: "アナムネ用紙の補充",                                                        done: false, createdAt: 5, sub: true, doneLabel: "補充済み" },
+  { id: "d6", text: "スリッパ、紙コップの注文（適宜）",                                          done: false, createdAt: 6, doneLabel: "発注済み" },
+  { id: "d7", text: "オムツ庫→介護タオル・ピンクシート・感染袋・ペーパータオル（適宜）",          done: false, createdAt: 7, doneLabel: "確認済み" },
 ];
 
 // ── JST Utility Functions ─────────────────────────────────────────────
@@ -251,8 +253,10 @@ export default function Home() {
   const [rangeLoading, setRangeLoading] = useState(false);
 
   // ToDo list
-  const [todos, setTodos]         = useState<TodoItem[]>([]);
-  const [todoInput, setTodoInput] = useState("");
+  const [todos, setTodos]               = useState<TodoItem[]>([]);
+  const [todoInput, setTodoInput]       = useState("");
+  const [editingLabelId, setEditingLabelId]   = useState<string | null>(null);
+  const [editingLabelText, setEditingLabelText] = useState("");
 
   // Shared UI state
   const [checkedItems, setCheckedItems]       = useState<Set<string>>(new Set());
@@ -639,7 +643,19 @@ export default function Home() {
 
   const toggleTodo = (id: string) => {
     setTodos((prev) =>
-      prev.map((t) => (t.id === id ? { ...t, done: !t.done } : t))
+      prev.map((t) => {
+        if (t.id !== id) return t;
+        // 前日以前にチェックしたアイテムはロック（変更不可）
+        if (t.done && t.checkedAt) {
+          const checkedDate = new Date(t.checkedAt).toLocaleDateString("en-CA", { timeZone: "Asia/Tokyo" });
+          if (checkedDate !== todayStr) return t;
+        }
+        if (!t.done) {
+          return { ...t, done: true, checkedAt: Date.now() };
+        } else {
+          return { ...t, done: false, checkedAt: undefined };
+        }
+      })
     );
   };
 
@@ -647,8 +663,30 @@ export default function Home() {
     setTodos((prev) => prev.filter((t) => t.id !== id));
   };
 
+  // 当日チェックしたものだけ削除（前日以前の履歴は残す）
   const clearDoneTodos = () => {
-    setTodos((prev) => prev.filter((t) => !t.done));
+    setTodos((prev) =>
+      prev.filter((t) => {
+        if (!t.done) return true;
+        if (!t.checkedAt) return false;
+        const checkedDate = new Date(t.checkedAt).toLocaleDateString("en-CA", { timeZone: "Asia/Tokyo" });
+        return checkedDate !== todayStr; // 前日以前は残す
+      })
+    );
+  };
+
+  const startEditLabel = (todo: TodoItem) => {
+    setEditingLabelId(todo.id);
+    setEditingLabelText(todo.doneLabel || "確認済み");
+  };
+
+  const saveLabel = (id: string) => {
+    const text = editingLabelText.trim();
+    if (!text) return;
+    setTodos((prev) =>
+      prev.map((t) => (t.id === id ? { ...t, doneLabel: text } : t))
+    );
+    setEditingLabelId(null);
   };
 
   // ── Weekly Calendar Scroll ───────────────────────────────────────────
@@ -1116,9 +1154,12 @@ export default function Home() {
                 <span>✅</span>ToDoリスト
               </h2>
               <div className="flex items-center gap-3">
-                {todos.some((t) => t.done) && (
+                {todos.some((t) => {
+                  if (!t.done || !t.checkedAt) return t.done;
+                  return new Date(t.checkedAt).toLocaleDateString("en-CA", { timeZone: "Asia/Tokyo" }) === todayStr;
+                }) && (
                   <button onClick={clearDoneTodos} className="text-xs text-red-400 font-medium">
-                    完了済みを削除
+                    本日分を削除
                   </button>
                 )}
                 <button
@@ -1158,38 +1199,125 @@ export default function Home() {
               </div>
             ) : (
               <div className="space-y-2">
-                {todos.map((todo) => (
-                  <div
-                    key={todo.id}
-                    className={`bg-white rounded-xl shadow-sm p-4 flex items-center gap-3 transition-opacity ${
-                      todo.done ? "opacity-50" : "opacity-100"
-                    } ${todo.sub ? "ml-6 border-l-2 border-blue-100" : ""}`}
-                  >
-                    <button
-                      onClick={() => toggleTodo(todo.id)}
-                      className={`w-6 h-6 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-colors ${
-                        todo.done
-                          ? "bg-green-500 border-green-500 text-white"
-                          : "border-gray-300 hover:border-blue-400"
-                      }`}
+                {todos.map((todo) => {
+                  // 前日以前にチェックしたか判定
+                  const checkedDate = todo.checkedAt
+                    ? new Date(todo.checkedAt).toLocaleDateString("en-CA", { timeZone: "Asia/Tokyo" })
+                    : null;
+                  const isLockedPrev = todo.done && !!checkedDate && checkedDate !== todayStr;
+                  const isCheckedToday = todo.done && checkedDate === todayStr;
+                  const prevLabel = todo.doneLabel || "確認済み";
+                  const prevDateStr = checkedDate
+                    ? (() => {
+                        const [, mm, dd] = checkedDate.split("-");
+                        return `${parseInt(mm)}月${parseInt(dd)}日`;
+                      })()
+                    : "";
+
+                  return (
+                    <div
+                      key={todo.id}
+                      className={`bg-white rounded-xl shadow-sm p-4 transition-opacity ${
+                        isLockedPrev ? "opacity-75" : todo.done ? "opacity-60" : "opacity-100"
+                      } ${todo.sub ? "ml-6 border-l-2 border-blue-100" : ""}`}
                     >
-                      {todo.done && (
-                        <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
-                          <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                        </svg>
+                      <div className="flex items-center gap-3">
+                        {/* チェックボックス */}
+                        <button
+                          onClick={() => toggleTodo(todo.id)}
+                          disabled={isLockedPrev}
+                          className={`w-6 h-6 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-colors ${
+                            isLockedPrev
+                              ? "bg-gray-200 border-gray-200 text-gray-400 cursor-not-allowed"
+                              : todo.done
+                              ? "bg-green-500 border-green-500 text-white"
+                              : "border-gray-300 hover:border-blue-400"
+                          }`}
+                          aria-label={isLockedPrev ? "ロック済み" : todo.done ? "完了を取り消す" : "完了にする"}
+                        >
+                          {(todo.done || isLockedPrev) && (
+                            <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+                              <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                            </svg>
+                          )}
+                        </button>
+
+                        {/* タスクテキスト */}
+                        <div className="flex-1 min-w-0">
+                          <span className={`text-sm ${
+                            isLockedPrev
+                              ? "text-gray-400 line-through"
+                              : todo.done
+                              ? "line-through text-gray-400"
+                              : "text-gray-800"
+                          }`}>
+                            {todo.text}
+                          </span>
+                          {/* 前回チェック日 表示 */}
+                          {isLockedPrev && (
+                            <p className="text-xs text-red-500 font-medium mt-0.5">
+                              前回 {prevDateStr} {prevLabel}
+                            </p>
+                          )}
+                          {isCheckedToday && (
+                            <p className="text-xs text-green-500 mt-0.5">本日チェック済み</p>
+                          )}
+                        </div>
+
+                        {/* ラベル編集ボタン */}
+                        <button
+                          onClick={() => startEditLabel(todo)}
+                          className="text-gray-300 hover:text-blue-400 transition-colors flex-shrink-0 text-base leading-none"
+                          aria-label="文言を編集"
+                          title={`完了文言: ${prevLabel}`}
+                        >
+                          ✏️
+                        </button>
+
+                        {/* 削除ボタン（ロック中は非表示） */}
+                        {!isLockedPrev && (
+                          <button
+                            onClick={() => deleteTodo(todo.id)}
+                            className="text-gray-300 hover:text-red-400 transition-colors flex-shrink-0 text-lg leading-none"
+                          >
+                            ×
+                          </button>
+                        )}
+                      </div>
+
+                      {/* ラベル編集フォーム（インライン） */}
+                      {editingLabelId === todo.id && (
+                        <div className="mt-3 flex gap-2 items-center">
+                          <span className="text-xs text-gray-400 whitespace-nowrap">完了文言:</span>
+                          <input
+                            type="text"
+                            value={editingLabelText}
+                            onChange={(e) => setEditingLabelText(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") saveLabel(todo.id);
+                              if (e.key === "Escape") setEditingLabelId(null);
+                            }}
+                            autoFocus
+                            className="flex-1 border border-blue-300 rounded-lg px-3 py-1.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                            placeholder="例: 発注済み、交換済み"
+                          />
+                          <button
+                            onClick={() => saveLabel(todo.id)}
+                            className="bg-blue-600 text-white text-xs font-semibold px-3 py-1.5 rounded-lg active:scale-95"
+                          >
+                            保存
+                          </button>
+                          <button
+                            onClick={() => setEditingLabelId(null)}
+                            className="text-gray-400 text-xs px-2 py-1.5"
+                          >
+                            ✕
+                          </button>
+                        </div>
                       )}
-                    </button>
-                    <span className={`flex-1 text-sm ${todo.done ? "line-through text-gray-400" : "text-gray-800"}`}>
-                      {todo.text}
-                    </span>
-                    <button
-                      onClick={() => deleteTodo(todo.id)}
-                      className="text-gray-300 hover:text-red-400 transition-colors flex-shrink-0 text-lg leading-none"
-                    >
-                      ×
-                    </button>
-                  </div>
-                ))}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </section>

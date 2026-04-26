@@ -1,6 +1,7 @@
 import webpush from "web-push";
 
-const SUBSCRIPTION_KEY = "er_push_subscription";
+const SUBSCRIPTION_KEY  = "er_push_subscription";
+const GOOGLE_TOKEN_KEY  = "er_google_tokens";
 
 function getRedis() {
   return {
@@ -24,6 +25,47 @@ function initWebPush() {
     vapidPrivateKey
   );
 }
+
+// ── Google Token Storage ──────────────────────────────────────────────
+
+export async function saveGoogleTokens(
+  accessToken: string,
+  refreshToken?: string
+): Promise<void> {
+  const { url, token } = getRedis();
+  if (!url || !token) return;
+  const data = JSON.stringify({ accessToken, refreshToken, savedAt: Date.now() });
+  await fetch(`${url}/set/${GOOGLE_TOKEN_KEY}`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify([data]),
+  });
+}
+
+export async function getGoogleTokens(): Promise<{
+  accessToken: string;
+  refreshToken?: string;
+  savedAt?: number;
+} | null> {
+  const { url, token } = getRedis();
+  if (!url || !token) return null;
+  const res = await fetch(`${url}/get/${GOOGLE_TOKEN_KEY}`, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: "no-store",
+  });
+  const data = await res.json();
+  if (!data.result) return null;
+  try {
+    const parsed = JSON.parse(data.result);
+    if (Array.isArray(parsed)) return JSON.parse(parsed[0]);
+    if (typeof parsed === "string") return JSON.parse(parsed);
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+// ── Push Subscription Storage ─────────────────────────────────────────
 
 export async function saveSubscription(subscription: object): Promise<void> {
   const { url, token } = getRedis();
