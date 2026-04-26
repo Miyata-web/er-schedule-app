@@ -271,9 +271,13 @@ export default function Home() {
   const [isSubscribing, setIsSubscribing] = useState(false);
   const [subscribeStep, setSubscribeStep] = useState("");
 
+  const [selectedDay, setSelectedDay] = useState<string | null>(null);
+
   const recognitionRef       = useRef<ISpeechRecognition | null>(null);
   const recognitionResultRef = useRef<boolean>(false);
   const recognitionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dayRefs = useRef<Map<string, HTMLElement>>(new Map());
+  const calendarBarRef = useRef<HTMLDivElement | null>(null);
 
   // Today's JST date string
   const todayStr = formatDateKey(jstShifted());
@@ -647,6 +651,18 @@ export default function Home() {
     setTodos((prev) => prev.filter((t) => !t.done));
   };
 
+  // ── Weekly Calendar Scroll ───────────────────────────────────────────
+
+  const scrollToDay = (key: string) => {
+    setSelectedDay(key);
+    const el = dayRefs.current.get(key);
+    const bar = calendarBarRef.current;
+    if (!el) return;
+    const barH = bar ? bar.getBoundingClientRect().bottom : 120;
+    const elTop = el.getBoundingClientRect().top + window.scrollY;
+    window.scrollTo({ top: elTop - barH - 8, behavior: "smooth" });
+  };
+
   // ── Format Helpers ───────────────────────────────────────────────────
 
   const formatTime = (dateTimeStr: string) => {
@@ -934,15 +950,20 @@ export default function Home() {
         {/* ══════════════════════ WEEKLY VIEW ══════════════════════════ */}
         {activeTab === "weekly" && (
           <section className="mb-6">
-            {/* Navigation — sticky below tab bar */}
-            <div className="sticky top-[45px] z-10 bg-gray-50 -mx-4 px-4 py-2 mb-4 border-b border-gray-200 shadow-sm">
-              <div className="flex items-center gap-2">
-                <NavBtn onClick={() => setWeekOffset((w) => w - 1)}>‹</NavBtn>
+
+            {/* ── Sticky calendar bar ───────────────────────────────── */}
+            <div
+              ref={calendarBarRef}
+              className="sticky top-[45px] z-10 bg-white -mx-4 px-4 pt-2 pb-3 border-b border-gray-200 shadow-sm"
+            >
+              {/* Week navigation row */}
+              <div className="flex items-center gap-2 mb-2">
+                <NavBtn onClick={() => { setWeekOffset((w) => w - 1); setSelectedDay(null); }}>‹</NavBtn>
                 <div className="flex-1 text-center">
-                  <p className="text-sm font-bold text-gray-800">{weekInfo.label}</p>
+                  <p className="text-xs font-bold text-gray-700">{weekInfo.label}</p>
                   {weekOffset !== 0 && (
                     <button
-                      onClick={() => setWeekOffset(0)}
+                      onClick={() => { setWeekOffset(0); setSelectedDay(null); }}
                       className="text-xs text-blue-500 mt-0.5"
                     >
                       今週に戻る
@@ -955,24 +976,74 @@ export default function Home() {
                 >
                   <span className={rangeLoading ? "animate-spin inline-block text-sm" : "text-sm"}>↻</span>
                 </NavBtn>
-                <NavBtn onClick={() => setWeekOffset((w) => w + 1)}>›</NavBtn>
+                <NavBtn onClick={() => { setWeekOffset((w) => w + 1); setSelectedDay(null); }}>›</NavBtn>
+              </div>
+
+              {/* Calendar grid: 7 columns */}
+              <div className="grid grid-cols-7 gap-0.5">
+                {weekInfo.dates.map(({ key, day, dow }) => {
+                  const isToday    = key === todayStr;
+                  const isSelected = key === selectedDay;
+                  const hasEvents  = (weekEventMap.get(key) || []).length > 0;
+                  const dayColor =
+                    dow === 0 ? "text-red-500" :
+                    dow === 6 ? "text-blue-500" :
+                    "text-gray-500";
+                  return (
+                    <button
+                      key={key}
+                      onClick={() => scrollToDay(key)}
+                      className="flex flex-col items-center py-1 rounded-xl active:scale-95 transition-transform"
+                    >
+                      {/* Day-of-week label */}
+                      <span className={`text-[10px] font-semibold mb-1 ${dayColor}`}>
+                        {DOW_JA[dow]}
+                      </span>
+                      {/* Date circle */}
+                      <span
+                        className={`w-8 h-8 flex items-center justify-center rounded-full text-sm font-bold transition-colors ${
+                          isToday
+                            ? "bg-blue-600 text-white"
+                            : isSelected
+                            ? "bg-blue-100 text-blue-700 ring-2 ring-blue-400"
+                            : dow === 0
+                            ? "text-red-500"
+                            : dow === 6
+                            ? "text-blue-500"
+                            : "text-gray-800"
+                        }`}
+                      >
+                        {day}
+                      </span>
+                      {/* Event dot */}
+                      <span
+                        className={`mt-1 w-1.5 h-1.5 rounded-full transition-colors ${
+                          hasEvents ? "bg-blue-400" : "bg-transparent"
+                        }`}
+                      />
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
-            {/* Day list */}
+            {/* ── Day list ─────────────────────────────────────────── */}
             {rangeLoading ? (
-              <div className="bg-white rounded-xl shadow-sm p-8 text-center">
+              <div className="bg-white rounded-xl shadow-sm p-8 text-center mt-4">
                 <div className="text-blue-400 animate-pulse text-2xl mb-2">⏳</div>
                 <p className="text-gray-500 text-sm">読み込み中...</p>
               </div>
             ) : (
-              <div className="space-y-4">
+              <div className="space-y-4 mt-4">
                 {weekInfo.dates.map(({ key, month, day, dow }) => {
                   const dayEvents = weekEventMap.get(key) || [];
                   const isToday   = key === todayStr;
                   const isWeekend = dow === 0 || dow === 6;
                   return (
-                    <div key={key}>
+                    <div
+                      key={key}
+                      ref={(el) => { if (el) dayRefs.current.set(key, el); }}
+                    >
                       {/* Day header */}
                       <div
                         className={`flex items-center gap-2 mb-1.5 ${
