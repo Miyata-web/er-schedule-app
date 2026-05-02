@@ -378,6 +378,30 @@ export default function Home() {
     } catch { /* ignore */ }
   }, [todos]);
 
+  // Load checkedItems from localStorage (当日分のみ復元、翌日は自動リセット)
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("er_checked_items");
+      if (saved) {
+        const { date, items } = JSON.parse(saved) as { date: string; items: string[] };
+        if (date === todayStr) {
+          setCheckedItems(new Set(items));
+        }
+      }
+    } catch { /* ignore */ }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Save checkedItems to localStorage whenever they change
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        "er_checked_items",
+        JSON.stringify({ date: todayStr, items: Array.from(checkedItems) })
+      );
+    } catch { /* ignore */ }
+  }, [checkedItems, todayStr]);
+
   // ── Push Notifications ───────────────────────────────────────────────
 
   const subscribeToPush = async (): Promise<boolean> => {
