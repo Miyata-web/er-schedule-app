@@ -252,14 +252,33 @@ export default function Home() {
   const [rangeEvents, setRangeEvents] = useState<CalendarEvent[]>([]);
   const [rangeLoading, setRangeLoading] = useState(false);
 
-  // ToDo list
-  const [todos, setTodos]               = useState<TodoItem[]>([]);
+  // ToDo list — lazy initializer でlocalStorageから直接読み込むことで
+  // 「Save エフェクトが空データを上書きする」競合バグを防ぐ
+  const [todos, setTodos] = useState<TodoItem[]>(() => {
+    if (typeof window === "undefined") return DEFAULT_TODOS.map((t) => ({ ...t, done: false }));
+    try {
+      const saved = localStorage.getItem("er_todos");
+      return saved ? JSON.parse(saved) : DEFAULT_TODOS.map((t) => ({ ...t, done: false }));
+    } catch {
+      return DEFAULT_TODOS.map((t) => ({ ...t, done: false }));
+    }
+  });
   const [todoInput, setTodoInput]       = useState("");
   const [editingLabelId, setEditingLabelId]   = useState<string | null>(null);
   const [editingLabelText, setEditingLabelText] = useState("");
 
-  // Shared UI state
-  const [checkedItems, setCheckedItems]       = useState<Set<string>>(new Set());
+  // checkedItems も同様に lazy initializer で初期化
+  const [checkedItems, setCheckedItems] = useState<Set<string>>(() => {
+    if (typeof window === "undefined") return new Set();
+    try {
+      const saved = localStorage.getItem("er_checked_items");
+      if (saved) {
+        const { date, items } = JSON.parse(saved) as { date: string; items: string[] };
+        if (date === formatDateKey(jstShifted())) return new Set<string>(items);
+      }
+    } catch { /* ignore */ }
+    return new Set();
+  });
   const [error, setError]                     = useState<string | null>(null);
   const [isRecording, setIsRecording]         = useState(false);
   const [recognizedText, setRecognizedText]   = useState("");
@@ -361,36 +380,12 @@ export default function Home() {
     }
   }, [session, activeTab, weekOffset, fetchRangeEvents]);
 
-  // Load todos from localStorage (fall back to defaults on first launch)
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem("er_todos");
-      setTodos(saved ? JSON.parse(saved) : DEFAULT_TODOS.map((t) => ({ ...t, done: false })));
-    } catch {
-      setTodos(DEFAULT_TODOS.map((t) => ({ ...t, done: false })));
-    }
-  }, []);
-
   // Save todos to localStorage whenever they change
   useEffect(() => {
     try {
       localStorage.setItem("er_todos", JSON.stringify(todos));
     } catch { /* ignore */ }
   }, [todos]);
-
-  // Load checkedItems from localStorage (当日分のみ復元、翌日は自動リセット)
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem("er_checked_items");
-      if (saved) {
-        const { date, items } = JSON.parse(saved) as { date: string; items: string[] };
-        if (date === todayStr) {
-          setCheckedItems(new Set(items));
-        }
-      }
-    } catch { /* ignore */ }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   // Save checkedItems to localStorage whenever they change
   useEffect(() => {
