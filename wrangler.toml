@@ -11,9 +11,9 @@ assets = { directory = ".open-next/assets" }
 #   wrangler kv namespace create ER_KV
 # 取得した id を下記に設定してください
 [[kv_namespaces]]
-binding = "ER_KV"
-id = "REPLACE_WITH_KV_NAMESPACE_ID"
-preview_id = "REPLACE_WITH_KV_PREVIEW_NAMESPACE_ID"
+binding = "ER_TODO_KV"
+id = "b5310ae480fa4d43a846b6b1b25b2830"
+preview_id = "25f51af184ad4aa2a039750b439c0eaa"
 
 # ── 環境変数 ─────────────────────────────────────────────────────────────
 # 機密情報は wrangler secret put <KEY> で設定（ここには書かない）:

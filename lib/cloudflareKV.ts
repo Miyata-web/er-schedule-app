@@ -12,7 +12,7 @@ export async function getKV(): Promise<KVNamespace | null> {
   try {
     const ctx = await getCloudflareContext();
     const env = ctx.env as Record<string, unknown>;
-    const kv  = env["ER_KV"];
+    const kv  = env["ER_TODO_KV"];
     return (kv as KVNamespace) ?? null;
   } catch {
     return null;
