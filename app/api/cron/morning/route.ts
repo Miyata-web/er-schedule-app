@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { sendPushNotification } from "@/lib/pushNotification";
 
-// Runs at 23:30 UTC = 8:30 AM JST
+// Cloudflare Worker の cron-worker から呼び出される（23:30 UTC = 8:30 JST）
 export async function GET(request: NextRequest) {
-  // Verify Vercel cron secret
   const authHeader = request.headers.get("authorization");
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

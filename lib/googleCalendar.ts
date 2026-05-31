@@ -17,7 +17,7 @@ async function refreshAccessToken(refreshToken: string): Promise<string | null> 
       }),
     });
     if (!res.ok) return null;
-    const json = await res.json();
+    const json = await res.json() as { access_token?: string };
     return json.access_token ?? null;
   } catch {
     return null;
@@ -63,8 +63,8 @@ export async function fetchTodayEventCount(): Promise<number> {
       { headers: authHeader }
     );
     if (!listRes.ok) return 0;
-    const listData = await listRes.json();
-    const erCal = (listData.items as Array<{ id: string; summary: string }> | undefined)
+    const listData = await listRes.json() as { items?: Array<{ id: string; summary: string }> };
+    const erCal = listData.items
       ?.find((c) => c.summary === "ER業務");
     if (!erCal) return 0;
 
@@ -75,8 +75,8 @@ export async function fetchTodayEventCount(): Promise<number> {
       { headers: authHeader }
     );
     if (!evRes.ok) return 0;
-    const evData = await evRes.json();
-    return (evData.items as unknown[] | undefined)?.length ?? 0;
+    const evData = await evRes.json() as { items?: unknown[] };
+    return evData.items?.length ?? 0;
   } catch {
     return 0;
   }

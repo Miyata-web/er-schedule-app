@@ -1,0 +1,27 @@
+name = "er-schedule-app"
+main = ".open-next/worker.js"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+# OpenNext のビルド成果物をアセットとして配信
+assets = { directory = ".open-next/assets" }
+
+# ── Cloudflare KV（旧 Upstash Redis の代替）────────────────────────────
+# デプロイ前に以下を実行して KV namespace を作成してください:
+#   wrangler kv namespace create ER_KV
+# 取得した id を下記に設定してください
+[[kv_namespaces]]
+binding = "ER_KV"
+id = "REPLACE_WITH_KV_NAMESPACE_ID"
+preview_id = "REPLACE_WITH_KV_PREVIEW_NAMESPACE_ID"
+
+# ── 環境変数 ─────────────────────────────────────────────────────────────
+# 機密情報は wrangler secret put <KEY> で設定（ここには書かない）:
+#   wrangler secret put GOOGLE_CLIENT_ID
+#   wrangler secret put GOOGLE_CLIENT_SECRET
+#   wrangler secret put AUTH_SECRET
+#   wrangler secret put GEMINI_API_KEY
+#   wrangler secret put NEXT_PUBLIC_VAPID_PUBLIC_KEY
+#   wrangler secret put VAPID_PRIVATE_KEY
+#   wrangler secret put VAPID_SUBJECT
+#   wrangler secret put CRON_SECRET

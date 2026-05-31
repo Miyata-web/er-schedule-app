@@ -9,8 +9,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const subscription = await request.json();
-    if (!subscription || !subscription.endpoint) {
+    const subscription = await request.json() as Record<string, unknown>;
+    if (!subscription || typeof subscription.endpoint !== "string") {
       return NextResponse.json({ error: "Invalid subscription" }, { status: 400 });
     }
 

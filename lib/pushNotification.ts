@@ -1,29 +1,26 @@
-import webpush from "web-push";
+/**
+ * Push 通知 & Google トークン管理
+ *
+ * ストレージ: Cloudflare KV（旧 Upstash Redis から移行）
+ * 送信:       web-push ライブラリ（nodejs_compat で動作）
+ */
 
-const SUBSCRIPTION_KEY  = "er_push_subscription";
+import webpush from "web-push";
+import { getKV } from "@/lib/cloudflareKV";
+
+const SUBSCRIPTION_KEY = "er_push_subscription";
 const GOOGLE_TOKEN_KEY  = "er_google_tokens";
 
-function getRedis() {
-  return {
-    url: process.env.UPSTASH_REDIS_REST_URL!,
-    token: process.env.UPSTASH_REDIS_REST_TOKEN!,
-  };
-}
-
-/** Convert any base64 variant → base64url (no padding, URL-safe chars) */
+/** base64url 正規化（+/= → -_） */
 function toBase64Url(key: string): string {
   return key.trim().replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
 }
 
 function initWebPush() {
-  const vapidPublicKey  = toBase64Url(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY  || "");
-  const vapidPrivateKey = toBase64Url(process.env.VAPID_PRIVATE_KEY             || "");
-  console.log(`[Push] VAPID pubkey length=${vapidPublicKey.length} first10=${vapidPublicKey.slice(0, 10)}`);
-  webpush.setVapidDetails(
-    process.env.VAPID_SUBJECT || "https://er-schedule-app.vercel.app",
-    vapidPublicKey,
-    vapidPrivateKey
-  );
+  const pub  = toBase64Url(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY  ?? "");
+  const priv = toBase64Url(process.env.VAPID_PRIVATE_KEY             ?? "");
+  const subj = process.env.VAPID_SUBJECT ?? "https://er-schedule-app.workers.dev";
+  webpush.setVapidDetails(subj, pub, priv);
 }
 
 // ── Google Token Storage ──────────────────────────────────────────────
@@ -32,14 +29,13 @@ export async function saveGoogleTokens(
   accessToken: string,
   refreshToken?: string
 ): Promise<void> {
-  const { url, token } = getRedis();
-  if (!url || !token) return;
-  const data = JSON.stringify({ accessToken, refreshToken, savedAt: Date.now() });
-  await fetch(`${url}/set/${GOOGLE_TOKEN_KEY}`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify([data]),
-  });
+  const kv = await getKV();
+  if (!kv) return;
+  await kv.put(
+    GOOGLE_TOKEN_KEY,
+    JSON.stringify({ accessToken, refreshToken, savedAt: Date.now() }),
+    { expirationTtl: 60 * 60 * 24 * 30 }
+  );
 }
 
 export async function getGoogleTokens(): Promise<{
@@ -47,70 +43,36 @@ export async function getGoogleTokens(): Promise<{
   refreshToken?: string;
   savedAt?: number;
 } | null> {
-  const { url, token } = getRedis();
-  if (!url || !token) return null;
-  const res = await fetch(`${url}/get/${GOOGLE_TOKEN_KEY}`, {
-    headers: { Authorization: `Bearer ${token}` },
-    cache: "no-store",
-  });
-  const data = await res.json();
-  if (!data.result) return null;
-  try {
-    const parsed = JSON.parse(data.result);
-    if (Array.isArray(parsed)) return JSON.parse(parsed[0]);
-    if (typeof parsed === "string") return JSON.parse(parsed);
-    return parsed;
-  } catch {
-    return null;
-  }
+  const kv = await getKV();
+  if (!kv) return null;
+  return kv.get<{ accessToken: string; refreshToken?: string; savedAt?: number }>(
+    GOOGLE_TOKEN_KEY,
+    "json"
+  );
 }
 
 // ── Push Subscription Storage ─────────────────────────────────────────
 
 export async function saveSubscription(subscription: object): Promise<void> {
-  const { url, token } = getRedis();
-  if (!url || !token) {
-    throw new Error("Upstash環境変数が未設定です (UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN)");
-  }
-  const res = await fetch(`${url}/set/${SUBSCRIPTION_KEY}`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify([JSON.stringify(subscription)]),
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`Upstash保存失敗 (${res.status}): ${text}`);
-  }
+  const kv = await getKV();
+  if (!kv) throw new Error("Cloudflare KV が利用できません（ローカル環境）");
+  await kv.put(SUBSCRIPTION_KEY, JSON.stringify(subscription));
 }
 
 export async function getSubscription(): Promise<webpush.PushSubscription | null> {
-  const { url, token } = getRedis();
-  const res = await fetch(`${url}/get/${SUBSCRIPTION_KEY}`, {
-    headers: { Authorization: `Bearer ${token}` },
-    cache: "no-store",
-  });
-  const data = await res.json();
-  if (!data.result) return null;
-
-  try {
-    const parsed = JSON.parse(data.result);
-    // Stored as array format: ["stringified_subscription"]
-    if (Array.isArray(parsed)) {
-      return JSON.parse(parsed[0]) as webpush.PushSubscription;
-    }
-    // Stored as direct object or stringified object
-    if (typeof parsed === "string") {
-      return JSON.parse(parsed) as webpush.PushSubscription;
-    }
-    return parsed as webpush.PushSubscription;
-  } catch {
-    console.error("[Push] Failed to parse subscription from Redis");
-    return null;
-  }
+  const kv = await getKV();
+  if (!kv) return null;
+  return kv.get<webpush.PushSubscription>(SUBSCRIPTION_KEY, "json");
 }
+
+export async function hasSubscription(): Promise<boolean> {
+  const kv = await getKV();
+  if (!kv) return false;
+  const val = await kv.get(SUBSCRIPTION_KEY);
+  return val !== null;
+}
+
+// ── Send Push Notification ────────────────────────────────────────────
 
 export async function sendPushNotification(
   title: string,
@@ -128,10 +90,10 @@ export async function sendPushNotification(
       JSON.stringify({
         title,
         body,
-        icon: "/icons/icon-192x192.png",
-        badge: "/icons/icon-192x192.png",
+        icon:    "/icons/icon-192x192.png",
+        badge:   "/icons/icon-192x192.png",
         vibrate: [200, 100, 200],
-        data: { url: "/" },
+        data:    { url: "/" },
       })
     );
     return { ok: true };

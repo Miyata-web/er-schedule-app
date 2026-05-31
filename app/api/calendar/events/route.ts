@@ -1,7 +1,20 @@
+/**
+ * GET /api/calendar/events
+ *
+ * Google Calendar API（直接 fetch）で "ER業務" カレンダーの予定を取得する。
+ * googleapis ライブラリは Edge Runtime 非対応のため、生 HTTP リクエストに置き換え済み。
+ */
+
+export const runtime = "edge";
+
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { google } from "googleapis";
 import { saveGoogleTokens } from "@/lib/pushNotification";
+
+const CALENDAR_LIST_URL =
+  "https://www.googleapis.com/calendar/v3/users/me/calendarList";
+const CALENDAR_EVENTS_BASE =
+  "https://www.googleapis.com/calendar/v3/calendars";
 
 export async function GET(request: Request) {
   try {
@@ -17,73 +30,76 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Save tokens to Upstash so cron jobs can access the calendar
+    // Cron が使えるようにトークンを KV に保存（fire & forget）
     saveGoogleTokens(session.accessToken, session.refreshToken).catch(() => {});
 
-    // Set up OAuth2 client with the user's access token
-    const oauth2Client = new google.auth.OAuth2(
-      process.env.GOOGLE_CLIENT_ID,
-      process.env.GOOGLE_CLIENT_SECRET
-    );
-    oauth2Client.setCredentials({ access_token: session.accessToken });
+    const authHeader = { Authorization: `Bearer ${session.accessToken}` };
 
-    const calendar = google.calendar({ version: "v3", auth: oauth2Client });
+    // カレンダー一覧を取得して "ER業務" を検索
+    const listRes = await fetch(CALENDAR_LIST_URL, { headers: authHeader });
+    if (!listRes.ok) {
+      return NextResponse.json({ error: "カレンダー一覧の取得に失敗しました" }, { status: 500 });
+    }
+    const listData = await listRes.json() as { items?: Array<{ id: string; summary: string }> };
+    const erCal = listData.items?.find((c) => c.summary === "ER業務");
 
-    // List all calendars to find "ER業務"
-    const calendarListResponse = await calendar.calendarList.list();
-    const calendars = calendarListResponse.data.items || [];
-
-    const erCalendar = calendars.find((cal) => cal.summary === "ER業務");
-
-    if (!erCalendar || !erCalendar.id) {
+    if (!erCal) {
       return NextResponse.json(
         {
           error: "ER業務カレンダーが見つかりませんでした",
-          availableCalendars: calendars.map((c) => c.summary),
+          availableCalendars: listData.items?.map((c) => c.summary),
         },
         { status: 404 }
       );
     }
 
-    // Parse optional start/end query params (YYYY-MM-DD format)
+    // 検索範囲（JST）を決定
     const { searchParams } = new URL(request.url);
-    const startParam = searchParams.get("start"); // YYYY-MM-DD
-    const endParam   = searchParams.get("end");   // YYYY-MM-DD
+    const startParam = searchParams.get("start");
+    const endParam   = searchParams.get("end");
 
-    let startOfRange: Date;
-    let endOfRange: Date;
+    let timeMin: string;
+    let timeMax: string;
 
     if (startParam && endParam) {
-      // Use the provided date range (interpret as JST dates)
-      startOfRange = new Date(`${startParam}T00:00:00+09:00`);
-      endOfRange   = new Date(`${endParam}T23:59:59+09:00`);
+      timeMin = new Date(`${startParam}T00:00:00+09:00`).toISOString();
+      timeMax = new Date(`${endParam}T23:59:59+09:00`).toISOString();
     } else {
-      // Default: today in JST
-      // Vercel servers run on UTC, so we must calculate the JST date explicitly
-      const now = new Date();
-      const jstOffset = 9 * 60 * 60 * 1000;
-      const jstNow = new Date(now.getTime() + jstOffset + now.getTimezoneOffset() * 60 * 1000);
-      const year  = jstNow.getUTCFullYear();
-      const month = String(jstNow.getUTCMonth() + 1).padStart(2, "0");
-      const day   = String(jstNow.getUTCDate()).padStart(2, "0");
-      startOfRange = new Date(`${year}-${month}-${day}T00:00:00+09:00`);
-      endOfRange   = new Date(`${year}-${month}-${day}T23:59:59+09:00`);
+      // 今日（JST）
+      const now     = new Date();
+      const jstNow  = new Date(now.getTime() + 9 * 3600000 + now.getTimezoneOffset() * 60000);
+      const y = jstNow.getUTCFullYear();
+      const m = String(jstNow.getUTCMonth() + 1).padStart(2, "0");
+      const d = String(jstNow.getUTCDate()).padStart(2, "0");
+      timeMin = new Date(`${y}-${m}-${d}T00:00:00+09:00`).toISOString();
+      timeMax = new Date(`${y}-${m}-${d}T23:59:59+09:00`).toISOString();
     }
 
-    const eventsResponse = await calendar.events.list({
-      calendarId: erCalendar.id,
-      timeMin: startOfRange.toISOString(),
-      timeMax: endOfRange.toISOString(),
-      singleEvents: true,
-      orderBy: "startTime",
-    });
+    const eventsUrl =
+      `${CALENDAR_EVENTS_BASE}/${encodeURIComponent(erCal.id)}/events` +
+      `?timeMin=${encodeURIComponent(timeMin)}&timeMax=${encodeURIComponent(timeMax)}` +
+      `&singleEvents=true&orderBy=startTime`;
 
-    const events = (eventsResponse.data.items || []).map((event) => ({
-      id: event.id,
-      title: event.summary || "（タイトルなし）",
-      start: event.start?.dateTime || event.start?.date || "",
-      end: event.end?.dateTime || event.end?.date || "",
-      description: event.description || "",
+    const evRes = await fetch(eventsUrl, { headers: authHeader });
+    if (!evRes.ok) {
+      return NextResponse.json({ error: "予定の取得に失敗しました" }, { status: 500 });
+    }
+    const evData = await evRes.json() as {
+      items?: Array<{
+        id: string;
+        summary?: string;
+        start?: { dateTime?: string; date?: string };
+        end?:   { dateTime?: string; date?: string };
+        description?: string;
+      }>;
+    };
+
+    const events = (evData.items ?? []).map((ev) => ({
+      id:          ev.id,
+      title:       ev.summary ?? "（タイトルなし）",
+      start:       ev.start?.dateTime ?? ev.start?.date ?? "",
+      end:         ev.end?.dateTime   ?? ev.end?.date   ?? "",
+      description: ev.description ?? "",
     }));
 
     return NextResponse.json({ events });

@@ -1,12 +1,23 @@
+/**
+ * POST /api/calendar/add
+ *
+ * "ER業務" カレンダーに予定を追加する。
+ * googleapis → 直接 fetch に置き換え済み（Edge Runtime 対応）。
+ */
+
+export const runtime = "edge";
+
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { google } from "googleapis";
+
+const CALENDAR_LIST_URL  = "https://www.googleapis.com/calendar/v3/users/me/calendarList";
+const CALENDAR_EVENTS_BASE = "https://www.googleapis.com/calendar/v3/calendars";
 
 interface AddEventBody {
-  title: string;
-  date: string; // YYYY-MM-DD
-  startTime: string; // HH:MM
-  endTime: string; // HH:MM
+  title:        string;
+  date:         string; // YYYY-MM-DD
+  startTime:    string; // HH:MM
+  endTime:      string; // HH:MM
   description?: string;
 }
 
@@ -14,7 +25,7 @@ export async function POST(request: NextRequest) {
   try {
     const session = await auth();
 
-    if (!session || !session.accessToken) {
+    if (!session?.accessToken) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -28,65 +39,63 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Set up OAuth2 client with the user's access token
-    const oauth2Client = new google.auth.OAuth2(
-      process.env.GOOGLE_CLIENT_ID,
-      process.env.GOOGLE_CLIENT_SECRET
-    );
-    oauth2Client.setCredentials({ access_token: session.accessToken });
+    const authHeader = { Authorization: `Bearer ${session.accessToken}` };
 
-    const calendar = google.calendar({ version: "v3", auth: oauth2Client });
+    // "ER業務" カレンダーを検索
+    const listRes = await fetch(CALENDAR_LIST_URL, { headers: authHeader });
+    if (!listRes.ok) {
+      return NextResponse.json({ error: "カレンダー一覧の取得に失敗しました" }, { status: 500 });
+    }
+    const listData = await listRes.json() as { items?: Array<{ id: string; summary: string }> };
+    const erCal = listData.items?.find((c) => c.summary === "ER業務");
 
-    // List all calendars to find "ER業務"
-    const calendarListResponse = await calendar.calendarList.list();
-    const calendars = calendarListResponse.data.items || [];
-
-    const erCalendar = calendars.find((cal) => cal.summary === "ER業務");
-
-    if (!erCalendar || !erCalendar.id) {
+    if (!erCal) {
       return NextResponse.json(
         {
           error: "ER業務カレンダーが見つかりませんでした",
-          availableCalendars: calendars.map((c) => c.summary),
+          availableCalendars: listData.items?.map((c) => c.summary),
         },
         { status: 404 }
       );
     }
 
-    // Build the event start and end times with timezone (JST = UTC+9)
-    const startDateTime = `${date}T${startTime}:00+09:00`;
-    const endDateTime = `${date}T${endTime}:00+09:00`;
-
-    const event = await calendar.events.insert({
-      calendarId: erCalendar.id,
-      requestBody: {
-        summary: title,
-        description: description || "",
-        start: {
-          dateTime: startDateTime,
-          timeZone: "Asia/Tokyo",
-        },
-        end: {
-          dateTime: endDateTime,
-          timeZone: "Asia/Tokyo",
-        },
-      },
+    // 予定を追加
+    const insertUrl = `${CALENDAR_EVENTS_BASE}/${encodeURIComponent(erCal.id)}/events`;
+    const insertRes = await fetch(insertUrl, {
+      method:  "POST",
+      headers: { ...authHeader, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        summary:     title,
+        description: description ?? "",
+        start: { dateTime: `${date}T${startTime}:00+09:00`, timeZone: "Asia/Tokyo" },
+        end:   { dateTime: `${date}T${endTime}:00+09:00`,   timeZone: "Asia/Tokyo" },
+      }),
     });
+
+    if (!insertRes.ok) {
+      const err = await insertRes.json().catch(() => ({}));
+      console.error("Calendar insert failed:", err);
+      return NextResponse.json({ error: "予定の追加に失敗しました" }, { status: 500 });
+    }
+
+    const ev = await insertRes.json() as {
+      id: string;
+      summary?: string;
+      start?: { dateTime?: string };
+      end?:   { dateTime?: string };
+    };
 
     return NextResponse.json({
       success: true,
       event: {
-        id: event.data.id,
-        title: event.data.summary,
-        start: event.data.start?.dateTime,
-        end: event.data.end?.dateTime,
+        id:    ev.id,
+        title: ev.summary,
+        start: ev.start?.dateTime,
+        end:   ev.end?.dateTime,
       },
     });
   } catch (error) {
     console.error("Error adding calendar event:", error);
-    return NextResponse.json(
-      { error: "予定の追加に失敗しました" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "予定の追加に失敗しました" }, { status: 500 });
   }
 }

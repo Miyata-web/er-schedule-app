@@ -1,3 +1,5 @@
+export const runtime = "edge";
+
 import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
@@ -110,7 +112,7 @@ function parseJapaneseEventFallback(text: string): ParsedEvent {
 
 export async function POST(request: NextRequest) {
   try {
-    const { text } = await request.json();
+    const { text } = await request.json() as { text?: string };
 
     if (!text || typeof text !== "string") {
       return NextResponse.json({ error: "テキストが必要です" }, { status: 400 });
